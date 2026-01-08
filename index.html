@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
   <head>
@@ -5,11 +6,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CTE Expert AI</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
     <style>
       body {
         font-family: 'Inter', sans-serif;
       }
+      
+      /* TIPOGRAFÍA DE TÍTULOS - Century Gothic */
+      .font-technical-title {
+        font-family: 'Century Gothic', 'AvantGarde', 'Tw Cen MT', sans-serif;
+      }
+
       /* Custom scrollbar for technical look */
       ::-webkit-scrollbar {
         width: 8px;
@@ -25,45 +33,41 @@
       ::-webkit-scrollbar-thumb:hover {
         background: #94a3b8;
       }
-      .markdown-body ul {
-        list-style-type: disc;
-        padding-left: 1.5em;
-        margin-bottom: 1em;
+      
+      /* --- AJUSTES DE MATEMÁTICAS (KaTeX) --- */
+      
+      /* 1. Fórmulas Inline (Variables como mu, Ce, Sk) */
+      /* REQUISITO: Más grandes y en Negrita */
+      .katex {
+        font-size: 1.35em !important; /* Un punto más grande */
+        font-weight: 700 !important;  /* Negrita forzada */
+        color: #0f172a !important;    /* Negro intenso para resaltar */
+        font-family: 'Cambria Math', 'Cambria', serif !important;
+        line-height: 1.1;
       }
-      .markdown-body ol {
-        list-style-type: decimal;
-        padding-left: 1.5em;
-        margin-bottom: 1em;
-      }
-      .markdown-body h1, .markdown-body h2, .markdown-body h3 {
-        font-weight: 600;
-        margin-top: 1em;
-        margin-bottom: 0.5em;
-        color: #1e293b;
-      }
-      .markdown-body p {
-        margin-bottom: 1em;
-        line-height: 1.6;
-      }
-      .markdown-body code {
-        background-color: #f1f5f9;
-        padding: 0.2em 0.4em;
-        border-radius: 4px;
-        font-size: 0.9em;
-        color: #ef4444;
-      }
-      .markdown-body pre {
-        background-color: #1e293b;
-        color: white;
-        padding: 1em;
-        border-radius: 8px;
+
+      /* 2. Fórmulas de Bloque (Recuadros) */
+      .katex-display {
+        background-color: #ffffff;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        border: 1px solid #e2e8f0;
         overflow-x: auto;
+        overflow-y: hidden;
+        margin: 1.5rem 0 !important;
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05);
+        text-align: center;
       }
-      .markdown-body blockquote {
-        border-left: 4px solid #3b82f6;
-        padding-left: 1em;
-        color: #475569;
-        font-style: italic;
+      
+      /* Ajuste interno para bloques: Mantenemos la negrita para consistencia */
+      .katex-display .katex {
+        font-size: 1.5em !important;
+        font-weight: 700 !important;
+      }
+      
+      /* Base text override to ensure lists look correct with big math */
+      li {
+        align-items: baseline;
       }
     </style>
   <script type="importmap">
@@ -74,7 +78,10 @@
     "react-markdown": "https://esm.sh/react-markdown@^10.1.0",
     "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
     "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3"
+    "react": "https://esm.sh/react@^19.2.3",
+    "remark-math": "https://esm.sh/remark-math@^6.0.0",
+    "rehype-katex": "https://esm.sh/rehype-katex@^7.0.0",
+    "remark-gfm": "https://esm.sh/remark-gfm@^4.0.0"
   }
 }
 </script>

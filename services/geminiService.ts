@@ -1,137 +1,119 @@
-import { GoogleGenAI } from "@google/genai";
-import { CTEContext, Message, Role } from "../types";
 
-// Helper to get system instructions based on context
-const getSystemInstruction = (context: CTEContext): string => {
-  const baseInstruction = `
-    Eres "CTE Expert AI", un asistente técnico avanzado para arquitectura e ingeniería en España.
-    
-    DIRECTRICES GLOBALES:
-    1. Tu fuente de verdad principal es el Código Técnico de la Edificación (CTE) y sus Documentos Básicos (DB).
-    2. Usa terminología técnica precisa (ej: "Estado Límite Último", "Clase de servicio", "Resistencia característica").
-    3. Cita siempre el artículo exacto (ej: "Según DB-SE-C 4.3...").
-    4. Si el usuario adjunta un PDF, PRIORIZA la información de ese documento sobre tu conocimiento general.
-    5. Usa Markdown (tablas, negritas) para facilitar la lectura técnica.
-  `;
+import { GoogleGenAI, HarmBlockThreshold, HarmCategory } from "@google/genai";
+import { CTEContext, Message } from "../types";
+import { MASTER_PROMPT, DB_ROLES } from "../prompts";
 
-  let specificRole = "";
+// ============================================================================
+// CONFIGURACIÓN DE MODO PRUEBA (MOCK)
+// ============================================================================
+// Pon esto en TRUE para hacer pruebas sin gastar API.
+// Pon esto en FALSE para usar la IA real.
+const USE_MOCK_API = false; 
 
-  switch (context) {
-    case CTEContext.DB_SE:
-      specificRole = `
-      CONTEXTO ACTIVO: DB-SE (SEGURIDAD ESTRUCTURAL - TODOS LOS DOCUMENTOS).
-      ACTÚA COMO: Ingeniero de Estructuras y Cimentaciones.
-      
-      SUB-DOCUMENTOS CLAVE QUE DEBES DOMINAR:
-      1. **SE-AE (Acciones en la edificación)**:
-         - Cargas permanentes, sobrecargas de uso (Tabla 3.1), viento (coeficientes eólicos), nieve (Tabla 3.8 y Anejo E), sismo (NCSE), térmicas.
-      2. **SE-C (Cimientos)**:
-         - Estados límite últimos (hundimiento, deslizamiento, vuelco).
-         - Presiones admisibles, asientos, zapatas, losas, pilotes (tope estructural, fórmulas de hinca), muros de contención (empujes activos/pasivos).
-      3. **SE-A (Acero)**:
-         - Clases de sección (1, 2, 3, 4), resistencia de barras (tracción, compresión, flexión, pandeo, vuelco lateral).
-         - Uniones (soldadas, atornilladas). Fatiga.
-      4. **SE-F (Fábrica)**:
-         - Piezas (macizas, huecas), morteros, aparejos.
-         - Resistencia a compresión, cortante y flexión. Muros capuchinos, doblados.
-      5. **SE-M (Madera)**:
-         - Clases de duración de carga y clases de servicio (1, 2, 3).
-         - Factores de modificación (kmod, kh, kdef).
-         - Uniones (clavijas, pernos, conectores).
-      
-      IMPORTANTE: Cuando el usuario pregunte, identifica primero de qué material o acción está hablando para aplicar el DB-SE correspondiente.
-      `;
-      break;
+const MOCK_RESPONSE_TEXT = `### 1. DIAGNÓSTICO NORMATIVO Y MARCO LEGAL
 
-    case CTEContext.DB_SI:
-      specificRole = `
-      CONTEXTO ACTIVO: DB-SI (SEGURIDAD EN CASO DE INCENDIO).
-      ACTÚA COMO: Ingeniero experto en protección contra incendios.
-      
-      ESTRUCTURA DE REFERENCIA:
-      - SI 1: Propagación interior (Compartimentación, LRE, Reacción al fuego).
-      - SI 2: Propagación exterior (Fachadas y cubiertas).
-      - SI 3: Evacuación (Cálculo de ocupación, salidas, escaleras protegidas).
-      - SI 4: Instalaciones PCI (RIPCI, dotación según uso/superficie).
-      - SI 5: Intervención de bomberos (Aproximación y entorno).
-      - SI 6: Resistencia al fuego estructura.
-      
-      IMPORTANTE: Distingue claramente entre los diferentes Usos (Residencial Vivienda, Hospitalario, Administrativo, etc.).
-      `;
-      break;
+De acuerdo con el contexto proporcionado por el usuario, el análisis técnico se centra en el **Documento Básico SE-AE (Seguridad Estructural - Acciones en la Edificación)**, específicamente en su apartado 3.5 relativo a la **Carga de Nieve**. Este documento regula las acciones que deben considerarse en el cálculo de estructuras para garantizar su seguridad y funcionalidad durante su vida útil. La correcta determinación de la carga de nieve es crítica en zonas con altitud relevante, ya que una subestimación podría derivar en colapsos parciales o totales de la cubierta ante eventos meteorológicos adversos, comprometiendo la Exigencia Básica SE-1 de Resistencia y Estabilidad.
 
-    case CTEContext.DB_SUA:
-      specificRole = `
-      CONTEXTO ACTIVO: DB-SUA (SEGURIDAD DE UTILIZACIÓN Y ACCESIBILIDAD).
-      ACTÚA COMO: Arquitecto experto en accesibilidad y prevención de riesgos.
-      
-      ESTRUCTURA DE REFERENCIA:
-      - SUA 1: Seguridad frente al riesgo de caídas (Suelos, desniveles, escaleras).
-      - SUA 2: Riesgo de impacto o atrapamiento (Puertas, vidrios).
-      - SUA 4: Iluminación (Alumbrado normal y emergencia).
-      - SUA 9: Accesibilidad Universal (Itinerarios, aseos, dotación).
-      
-      IMPORTANTE: Ten en cuenta las actualizaciones del RD 450/2022 sobre accesibilidad.
-      `;
-      break;
+Ficha Resumen:
+- **Marco legislativo**: Código Técnico de la Edificación (CTE).
+- **Documento Básico**: DB-SE-AE (Seguridad Estructural - Acciones en la Edificación).
+- **Sección o apartado**: 3.5 Carga de Nieve.
+- **Ámbito de aplicación**: Cubiertas de edificación en términos municipales con altitud < 1.000 m (o superior según anexos).
+- **Referencia legal**: Real Decreto 314/2006 (BOE 28-03-2006) y sus modificaciones vigentes.
 
-    case CTEContext.DB_HE:
-      specificRole = `
-      CONTEXTO ACTIVO: DB-HE (AHORRO DE ENERGÍA).
-      ACTÚA COMO: Consultor energético y experto en sostenibilidad.
-      
-      ESTRUCTURA DE REFERENCIA:
-      - HE 0: Limitación del consumo energético.
-      - HE 1: Control de la demanda energética (Envolvente, compacidad, puentes térmicos).
-      - HE 2: Rendimiento de instalaciones térmicas (RITE).
-      - HE 4: Contribución renovable para agua caliente sanitaria (ACS).
-      - HE 5: Generación eléctrica fotovoltaica.
-      
-      IMPORTANTE: La Zona Climática es fundamental para determinar las exigencias.
-      `;
-      break;
+### 2. METODOLOGÍA Y ANÁLISIS TÉCNICO
 
-    case CTEContext.DB_HS:
-      specificRole = `
-      CONTEXTO ACTIVO: DB-HS (SALUBRIDAD).
-      ACTÚA COMO: Ingeniero de instalaciones hidráulicas y salubridad.
-      
-      ESTRUCTURA DE REFERENCIA:
-      - HS 1: Protección frente a la humedad.
-      - HS 3: Calidad del aire interior (Caudales ventilación).
-      - HS 4: Suministro de agua.
-      - HS 5: Evacuación de aguas.
-      - HS 6: Protección frente al radón.
-      `;
-      break;
+**PASO 1 (OBLIGATORIO): Tabla de Datos de Partida**
 
-    case CTEContext.DB_HR:
-      specificRole = `
-      CONTEXTO ACTIVO: DB-HR (PROTECCIÓN FRENTE AL RUIDO).
-      ACTÚA COMO: Ingeniero acústico.
-      
-      ESTRUCTURA DE REFERENCIA:
-      - HR: Aislamiento a ruido aéreo y de impactos.
-      - Ruido de instalaciones.
-      - Tiempo de reverberación.
-      `;
-      break;
+| Parámetro | Valor | Fuente (Tabla/Art.) |
+| :--- | :--- | :--- |
+| **Localización** | Burgos (Capital) | Tabla 3.8 / Datos Proyecto |
+| **Altitud** | 856 m | Instituto Geográfico Nacional |
+| **Zona climática** | 2 | Anejo E (Mapa zonas) |
+| **Valor base $s_k$** | 1,0 kN/m² | Tabla 3.8 (interpolado) |
+| **Coef. exposición $c_e$** | 1,0 | Apdo. 3.5.2 (Normal) |
+| **Coef. forma $\\mu$** | 1,0 | Tabla 3.7 (Cubierta plana) |
 
-    default: // CTEContext.GENERAL
-      specificRole = `
-      CONTEXTO ACTIVO: GENERAL / PARTE I / GESTIÓN.
-      ACTÚA COMO: Coordinador de proyectos y experto en legislación.
-      
-      PRIORIDADES:
-      1. Gestión de documentación (Libro del Edificio).
-      2. Control de recepción de materiales (Marcado CE, Distintivos de calidad).
-      3. Disposiciones generales del CTE Parte I.
-      `;
-      break;
+> **Nota Técnica:** La altitud es un factor determinante. Si la ubicación exacta del proyecto difiere de la capital y se sitúa en una cota superior (ej. 950 m), el valor de carga base aumentaría exponencialmente. Se recomienda verificar la cota topográfica exacta del solar.
+
+**PASO 3: Fundamentación Teórica**
+
+Para el cálculo de la carga de nieve por unidad de superficie en proyección horizontal ($q_n$), se emplea la siguiente formulación establecida en el DB-SE-AE:
+
+$$
+q_n = \mu \cdot c_e \cdot s_k
+$$
+
+**Definición de Variables:**
+- **$q_n$**: Carga de nieve por unidad de superficie (kN/m²). Es la acción final a aplicar sobre el modelo de cálculo.
+- **$\\mu$**: Coeficiente de forma de la cubierta. Depende de la inclinación de los faldones y de la presencia de obstáculos que puedan producir acumulaciones por viento. Para cubiertas planas sin petos altos, su valor es 1,0.
+- **$c_e$**: Coeficiente de exposición. Generalmente es 1,0, salvo en zonas muy expuestas al viento (donde la nieve se barre, $c_e=0,8$) o protegidas (donde se acumula, $c_e=1,2$).
+- **$s_k$**: Valor característico de la carga de nieve sobre el terreno (kN/m²). Depende de la zona climática y la altitud.
+
+### 3. DESARROLLO DEL CÁLCULO O VERIFICACIÓN
+
+Procedemos al cálculo numérico sustituyendo los valores identificados:
+
+$$
+q_n = 1,0 \cdot 1,0 \cdot 1,0 = 1,0 \text{ kN/m}^2
+$$
+
+**Conversión de Unidades:**
+Para facilitar la interpretación en obra, convertimos el valor a unidades más intuitivas (kg/m²), considerando que $1 \text{ kN} \approx 100 \text{ kg}$.
+
+$$
+1,0 \text{ kN/m}^2 \approx 100 \text{ kg/m}^2
+$$
+
+**Análisis de Resultados:**
+El valor de **100 kg/m²** representa una carga significativa, equivalente a tener una lámina de agua de 10 cm de espesor sobre toda la cubierta. Este valor debe combinarse con el resto de acciones (peso propio, viento, uso) aplicando los coeficientes de mayoración de cargas correspondientes (1,50 para acciones variables en situaciones persistentes o transitorias).
+
+**Conclusión:**
+El valor de cálculo CUMPLE con los mínimos normativos para la zona, siempre que la estructura se dimensione para soportar esta sobrecarga sin superar los Estados Límite Últimos (ELU) ni de Servicio (ELS).
+
+### 4. CITA REGLAMENTARIA LITERAL
+
+Según DB-SE-AE, Sección 3.5.1, párrafo 1:
+> "El valor de la carga de nieve por unidad de superficie en proyección horizontal, qn, se determinará mediante la expresión: qn = \mu \cdot ce \cdot sk"
+
+### 5. OBSERVACIONES Y RECOMENDACIONES DE EXPERTO
+
+1.  **Acumulaciones por Viento**: Si el diseño de cubierta incluye petos perimetrales, chimeneas o cambios de nivel, es OBLIGATORIO calcular la carga de nieve por acumulación (Apdo. 3.5.3). El coeficiente $\mu$ puede alcanzar valores de 2.0 o 4.0 en esas zonas locales.
+2.  **Drenaje**: Asegurar que los sumideros y gárgolas se mantengan libres de hielo. El peso de la nieve puede aumentar si se transforma en hielo o si se impide el drenaje del agua de deshielo.
+3.  **Mantenimiento**: Se recomienda incluir en el Libro del Edificio la prohibición de acumular nieve retirada de otras zonas sobre partes vulnerables de la cubierta durante tareas de limpieza.
+
+### 6. FUENTES DE REFERENCIA
+
+- Código Técnico de la Edificación (CTE), Parte I y Parte II.
+- Documento Básico SE-AE Acciones en la Edificación (Versión consolidad con comentarios del Ministerio).
+- Mapa de Zonas Climáticas (Anejo E del DB-SE-AE).`;
+
+const simulateStreaming = async (
+  onChunk: (text: string) => void, 
+  onGrounding: (chunks: any[]) => void
+) => {
+  // Simulamos un pequeño retraso inicial como si pensara
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  
+  // Simulamos referencias (Grounding)
+  onGrounding([
+    { web: { uri: "https://www.codigotecnico.org/pdf/Documentos/SE/DB_SE-AE.pdf", title: "DB-SE-AE Acciones en la edificación" } },
+    { web: { uri: "https://www.boe.es/buscar/act.php?id=BOE-A-2006-5515", title: "BOE Código Técnico" } }
+  ]);
+
+  // Simulamos el streaming de texto carácter a carácter (o bloques pequeños)
+  const chunkSize = 8; // Un poco más rápido para textos largos
+  for (let i = 0; i < MOCK_RESPONSE_TEXT.length; i += chunkSize) {
+    const chunk = MOCK_RESPONSE_TEXT.slice(i, i + chunkSize);
+    onChunk(chunk);
+    // Velocidad de escritura variable
+    await new Promise(resolve => setTimeout(resolve, 5 + Math.random() * 15)); 
   }
-
-  return `${baseInstruction}\n\n${specificRole}`;
 };
+
+// ============================================================================
+// SERVICIO PRINCIPAL
+// ============================================================================
 
 export const streamGeminiResponse = async (
   prompt: string,
@@ -141,16 +123,39 @@ export const streamGeminiResponse = async (
   onChunk: (text: string) => void,
   onGrounding: (chunks: any[]) => void
 ) => {
-  if (!process.env.API_KEY) {
-    throw new Error("API Key not found");
+  
+  // ---> INTERCEPTOR MOCK
+  if (USE_MOCK_API) {
+    console.log("🔶 MODO MOCK ACTIVADO: Simulando respuesta sin API Key.");
+    await simulateStreaming(onChunk, onGrounding);
+    return;
   }
+  // <--- FIN INTERCEPTOR MOCK
 
+  // Inicialización con variable de entorno (Standard)
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
+  // 1. LÓGICA DE FUSIÓN DE PROMPTS
+  // Buscamos el rol específico. Si no existe, usamos el GENERAL.
+  const specificRoleInstruction = DB_ROLES[context] || DB_ROLES[CTEContext.GENERAL];
+  
+  // Construimos la instrucción final sumando las partes
+  const systemInstruction = `
+    ${MASTER_PROMPT}
+    
+    ===================================================
+    ⚠️ INSTRUCCIÓN DE CONTEXTO PRIORITARIO (MODO EXPERTO)
+    ===================================================
+    ${specificRoleInstruction}
+    
+    NOTA: Tus respuestas deben centrarse estrictamente en este ámbito técnico.
+  `;
+
   // Transform app messages to SDK history format
   const history = messageHistory.map(m => {
     const parts: any[] = [];
     
+    // Add attachments to history if present
     if (m.attachment) {
       parts.push({
         inlineData: {
@@ -160,6 +165,7 @@ export const streamGeminiResponse = async (
       });
     }
     
+    // Add text content
     if (m.content) {
       parts.push({ text: m.content });
     }
@@ -171,28 +177,43 @@ export const streamGeminiResponse = async (
   });
 
   const chat = ai.chats.create({
-    model: 'gemini-3-flash-preview',
+    // SELECCIÓN DE MODELO: 'gemini-3-flash-preview'
+    // Se usa la versión Flash por ser más eficiente en cuota y evitar errores 429,
+    // manteniendo altas capacidades de razonamiento.
+    model: 'gemini-3-flash-preview', 
     config: {
-      systemInstruction: getSystemInstruction(context),
-      tools: [{ googleSearch: {} }], // Enable grounding
+      systemInstruction: systemInstruction,
+      tools: [{ googleSearch: {} }], 
       temperature: 0.3, 
+      maxOutputTokens: 8192,
+      // Se desactiva thinkingConfig explícito para ahorrar tokens y reducir riesgo de 429
+      // thinkingConfig: { thinkingBudget: 1024 },
+      // Sin filtros de seguridad para contenido técnico
+      safetySettings: [
+        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+      ],
     },
     history: history
   });
 
-  // Construct current message
-  let messageContent: any = prompt;
+  // Construct current message parts
+  let messageContent: any[] = [];
+
+  // Add attachment first if it exists, to provide context before the prompt
   if (attachment) {
-    messageContent = [
-      { text: prompt },
-      { 
-        inlineData: { 
-          mimeType: attachment.mimeType, 
-          data: attachment.data 
-        } 
-      }
-    ];
+    messageContent.push({
+      inlineData: { 
+        mimeType: attachment.mimeType, 
+        data: attachment.data 
+      } 
+    });
   }
+
+  // Add the text prompt
+  messageContent.push({ text: prompt });
 
   const result = await chat.sendMessageStream({ message: messageContent });
 
